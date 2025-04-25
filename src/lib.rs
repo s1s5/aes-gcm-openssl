@@ -20,12 +20,31 @@ pub mod aead {
 
 pub type U12 = UInt<UInt<UInt<UInt<UTerm, B1>, B1>, B0>, B0>;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Error;
+#[derive(Clone, Debug)]
+pub struct Error(openssl::error::ErrorStack);
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("aead::Error")
+    }
+}
+
+impl From<openssl::error::ErrorStack> for Error {
+    fn from(e: openssl::error::ErrorStack) -> Self {
+        Error(e)
+    }
+}
+
+impl PartialEq for Error {
+    fn eq(&self, other: &Self) -> bool {
+        let own = self.0.errors();
+        let other = other.0.errors();
+
+        own.len() == other.len()
+            && own
+                .iter()
+                .zip(other.iter())
+                .all(|(a, b)| a.code() == b.code())
     }
 }
 
@@ -65,32 +84,25 @@ impl Aes128Gcm {
         // // let tag = self.encrypt_in_place_detached(nonce, associated_data, buffer.as_mut())?;
         // buffer.extend_from_slice(tag.as_slice())?;
         // todo!()
-        println!("create encrypter");
-        let mut encrypter = Crypter::new(self.cipher, Mode::Encrypt, &self.key, Some(&nonce.data))
-            .map_err(|_| Error)?;
-        println!("add_update");
-        encrypter.aad_update(payload.aad).map_err(|_| Error)?;
 
-        println!("ciphertext");
+        let mut encrypter = Crypter::new(self.cipher, Mode::Encrypt, &self.key, Some(&nonce.data))?;
+
+        encrypter.aad_update(payload.aad)?;
+
         // 出力バッファ（暗号文）
         let mut ciphertext = vec![0; payload.msg.len() + self.cipher.block_size()];
-        println!("encrypter.update");
-        let mut count = encrypter
-            .update(payload.msg, &mut ciphertext)
-            .map_err(|_| Error)?;
-        println!("finalize");
-        count += encrypter
-            .finalize(&mut ciphertext[count..])
-            .map_err(|_| Error)?;
-        println!("struncate");
+
+        let mut count = encrypter.update(payload.msg, &mut ciphertext)?;
+
+        count += encrypter.finalize(&mut ciphertext[count..])?;
+
         ciphertext.truncate(count);
 
         // 認証タグの取得（16バイト）
         let mut tag = [0u8; 16];
-        println!("get_tag");
-        encrypter.get_tag(&mut tag).map_err(|_| Error)?;
 
-        println!("complete");
+        encrypter.get_tag(&mut tag)?;
+
         ciphertext.extend_from_slice(&tag);
 
         Ok(ciphertext)

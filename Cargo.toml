@@ -1,0 +1,11 @@
+[package]
+name = "aes-gcm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+generic-array = { version = "0.14", default-features = false }
+openssl = { version = "0.10", features = ["vendored"] } 
+
+[dev-dependencies]
+hex-literal = "*"
